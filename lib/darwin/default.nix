@@ -179,6 +179,12 @@
   # harness to point fake domains at a local httpbin. Not part of the
   # public API — leading underscore signals internal-only.
   _proxyRedirects ? { },
+  # Raw Seatbelt rules appended verbatim to the generated .sb profile.
+  # Escape hatch for cases the structured args don't cover.
+  extraSeatbeltRules ? "",
+  # Accepted but ignored on macOS — see lib/linux/default.nix. Lets a single
+  # mkSandbox call work unchanged on either OS.
+  extraBwrapArgs ? [ ],
   # Legacy args that should not be used in new code. Still accepted for
   # backward compatibility, but will throw an error if used with
   # assertNoLegacyArgs.
@@ -472,6 +478,7 @@ let
       {
         closurePaths = closurePathsFile;
         staticRules = seatbeltStaticRules;
+        extraRules = extraSeatbeltRules;
       }
       # bash
       ''
@@ -485,6 +492,12 @@ let
             echo "    (allow file-read* (subpath \"$storePath\"))"
             echo "    (allow process-exec (subpath \"$storePath\"))"
           done < "$closurePaths"
+
+          if [ -n "$extraRules" ]; then
+            echo ""
+            echo "    ;; User-provided extraSeatbeltRules"
+            echo "$extraRules"
+          fi
         } > $out
       '';
 

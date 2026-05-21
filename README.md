@@ -123,8 +123,33 @@ If you want to keep the original command name as the alias, change the `outName`
 | `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
+| `extraSeatbeltRules` | no | Raw Scheme string appended to the generated `.sb` Seatbelt profile. **macOS only** — ignored on Linux. Default `""`. |
+| `extraBwrapArgs` | no | List of strings appended to the `bwrap` argv. **Linux only** — ignored on macOS. Default `[ ]`. |
 
 Paths declared in `rwDirs` / `rwFiles` / `roDirs` / `roFiles` must exist on the host before launch — the sandbox exits with a clear error if any are missing.
+
+Both `extraSeatbeltRules` and `extraBwrapArgs` are accepted on both signatures so a single `mkSandbox` call works unchanged on either OS — the inapplicable argument is silently ignored.
+
+> **Warning:** These are raw escape hatches that bypass the curated defaults. Misuse can weaken or fully defeat the sandbox. Only add rules you understand and need.
+
+#### Platform-specific extension examples
+
+Enabling Playwright / Chromium on macOS requires extra Mach service allowances:
+
+```nix
+extraSeatbeltRules = ''
+  (allow mach-lookup (global-name "com.apple.fonts"))
+  (allow mach-lookup (global-name "com.apple.iconservices"))
+'';
+```
+
+Binding a custom path on Linux (e.g. for Playwright browsers or GPU access):
+
+```nix
+extraBwrapArgs = [
+  "--ro-bind" "/opt/playwright-browsers" "/opt/playwright-browsers"
+];
+```
 
 A minimal example — the arguments are the same whether you use a flake or a `shell.nix`:
 

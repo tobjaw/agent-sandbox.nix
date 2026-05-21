@@ -87,6 +87,12 @@
   # harness to point fake domains at a local httpbin. Not part of the
   # public API — leading underscore signals internal-only.
   _proxyRedirects ? { },
+  # Raw bwrap args appended verbatim to the bwrap invocation. Escape hatch
+  # for cases the structured args don't cover.
+  extraBwrapArgs ? [ ],
+  # Accepted but ignored on Linux — see lib/darwin/default.nix. Lets a single
+  # mkSandbox call work unchanged on either OS.
+  extraSeatbeltRules ? "",
   # Legacy args that should not be used in new code. Still accepted for
   # backward compatibility, but will throw an error if used with
   # assertNoLegacyArgs.
@@ -161,6 +167,10 @@ let
   extraEnvStr = builtins.concatStringsSep " " (
     map (name: "--setenv ${name} ${builtins.toJSON env.${name}}") (builtins.attrNames env)
   );
+
+  extraBwrapArgsStr =
+    if extraBwrapArgs == [ ] then ""
+    else pkgs.lib.escapeShellArgs extraBwrapArgs;
 
   conditionalNetworkingParams = import ./networking.nix {
     pkgs = pkgs;
@@ -347,6 +357,7 @@ builtins.seq
             ${conditionalNetworkingParams.caCertBubblewrapStr} \
             ${conditionalNetworkingParams.proxyEnvBubblewrapStr} \
             ${extraEnvStr} \
+            ${extraBwrapArgsStr} \
             ${nixDaemonSocketBwrapStr} \
             ${preEntryScript} ${pkg}/bin/${binName} "$@"
         '';
