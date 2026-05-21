@@ -518,7 +518,7 @@ builtins.seq
         # bash
         ''
           #!${pkgs.bashInteractive}/bin/bash
-          CWD=$(pwd)
+          CWD=$(pwd -P)
 
           ${shared.assertBindsExistBashStr { inherit rwDirs rwFiles roDirs roFiles; }}
 
