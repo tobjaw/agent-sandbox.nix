@@ -47,7 +47,7 @@ if allowedDomains != null then
     bashTrapCleanupStr =
       # bash
       ''
-        trap 'kill $_PROXY_PID 2>/dev/null; rm -f "$_CA_CERT_FILE" "$_COMBINED_CA_BUNDLE"; rm -f "$_SANDBOX_PASSWD"; rm -rf "$SANDBOX_HOME" "$SANDBOX_PROFILE"' EXIT
+        trap 'kill $_PROXY_PID 2>/dev/null; rm -f "$_CA_CERT_FILE" "$_COMBINED_CA_BUNDLE"; rm -f "$_SANDBOX_PASSWD"; rm -rf "$SANDBOX_HOME" "$SANDBOX_TMPDIR" "$SANDBOX_PROFILE"' EXIT
       '';
     sandboxExecBashStr = "";
   }
@@ -105,7 +105,7 @@ else
     bashTrapCleanupStr =
       # bash
       ''
-        trap 'rm -f "$_SANDBOX_PASSWD"; rm -rf "$SANDBOX_HOME" "$SANDBOX_PROFILE"' EXIT
+        trap 'rm -f "$_SANDBOX_PASSWD"; rm -rf "$SANDBOX_HOME" "$SANDBOX_TMPDIR" "$SANDBOX_PROFILE"' EXIT
       '';
     sandboxExecBashStr = "exec ";
   }

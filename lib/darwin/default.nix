@@ -82,8 +82,13 @@
       migration is complete.
 
     Temp directories:
-      /tmp, /private/tmp, and $TMPDIR (injected as /tmp via -D).
-      All are read-write. The per-user /private/var/folders tree —
+      /tmp and /private/tmp are read-write only, shared across
+      concurrent sandbox runs. $TMPDIR points at a private ephemeral
+      directory created fresh per run (sibling to SANDBOX_HOME, same
+      mktemp/cleanup pattern) and additionally gets process-exec, so
+      tools that compile-then-execute out of $TMPDIR (e.g. `go test`)
+      work without granting exec on the shared /tmp to every
+      sandboxed process. The per-user /private/var/folders tree —
       where confstr(_CS_DARWIN_USER_TEMP_DIR / _CACHE_DIR) resolves
       to — is intentionally NOT allowed: it holds host-user secrets
       (age keys, PATs, etc.) reachable because sandbox-exec can't
@@ -308,9 +313,28 @@ let
   symlinkRoDirsStr = mkSymlinkHomeMappingStr roDirParams;
   symlinkRoFilesStr = mkSymlinkHomeMappingStr roFileParams;
 
+  # Split env: literal values are always passed; vars whose value is exactly
+  # "$NAME" (bash passthrough pattern) are only injected when non-empty at
+  # runtime, so an unset parent-env var doesn't land inside the sandbox as
+  # an explicit empty string.
+  alwaysEnv = pkgs.lib.filterAttrs (name: value: value != ("$" + name)) env;
+  passthroughEnv = pkgs.lib.filterAttrs (name: value: value == ("$" + name)) env;
+
   extraEnvInlineStr = builtins.concatStringsSep " \\\n        " (
-    map (name: "${name}=${builtins.toJSON env.${name}}") (builtins.attrNames env)
+    map (name: "${name}=${builtins.toJSON alwaysEnv.${name}}") (builtins.attrNames alwaysEnv)
   );
+
+  # One conditional line per passthrough var; string concatenation avoids
+  # nested-interpolation edge cases with $${...} inside ''...'' strings.
+  passthroughEnvLines = map (
+    name: "[ -n \"$" + name + "\" ] && _pass_env+=(" + name + "=\"$" + name + "\")"
+  ) (builtins.attrNames passthroughEnv);
+
+  # Bash preamble: build _pass_env array, conditionally populated at runtime.
+  passthroughEnvBashStr = ''
+    _pass_env=()
+    ${builtins.concatStringsSep "\n    " passthroughEnvLines}
+  '';
 
   conditionalNetworkingParams = import ./networking.nix {
     pkgs = pkgs;
@@ -538,6 +562,12 @@ builtins.seq
           REAL_HOME="$HOME"
           SANDBOX_HOME=$(mktemp -d /private/tmp/sandbox-home.XXXXXX)
           _SANDBOX_PASSWD=$(mktemp /tmp/sandbox-passwd.XXXXXX)
+
+          # Create a private, per-run TMPDIR (separate from SANDBOX_HOME) so tools
+          # that compile-then-execute out of $TMPDIR (e.g. `go test`) work. Unlike
+          # the shared /tmp (read/write only), this path also gets process-exec,
+          # scoped to just this run.
+          SANDBOX_TMPDIR=$(mktemp -d /private/tmp/sandbox-tmp.XXXXXX)
           printf 'user:x:%s:%s:sandbox user:%s:/bin/sh\n' "$(id -u)" "$(id -g)" "$REAL_HOME" > "$_SANDBOX_PASSWD"
 
           # Symlink state / ro dirs/files into sandbox HOME so $HOME-relative
@@ -556,6 +586,7 @@ builtins.seq
           ${conditionalNetworkingParams.networkRuntimePatchBashStr}
           ${conditionalNetworkingParams.bashTrapCleanupStr}
 
+          ${passthroughEnvBashStr}
 
           ${conditionalNetworkingParams.sandboxExecBashStr}/usr/bin/env -i \
             HOME="$SANDBOX_HOME" \
@@ -563,13 +594,14 @@ builtins.seq
             SHELL="${bashWrapper}/bin/bash" \
             PATH="${pathStr}" \
             SSL_CERT_DIR="${pkgs.cacert}/etc/ssl/certs" \
-            TMPDIR=/tmp \
+            TMPDIR="$SANDBOX_TMPDIR" \
             GIT_CONFIG_COUNT="1" \
             GIT_CONFIG_KEY_0="user.useConfigOnly" \
             GIT_CONFIG_VALUE_0="true" \
             ${conditionalNetworkingParams.caCertEnvInlineBashStr} \
             ${conditionalNetworkingParams.proxyEnvInlineBashStr} \
             ${extraEnvInlineStr} \
+            "''${_pass_env[@]}" \
             /usr/bin/sandbox-exec \
             -f "$SANDBOX_PROFILE" \
             -D CWD="$CWD" \
@@ -579,7 +611,7 @@ builtins.seq
             -D REPO_ROOT="$REPO_ROOT" \
             -D REPO_ROOT_PARENT="$REPO_ROOT_PARENT" \
             -D MY_TTY="$MY_TTY" \
-            -D TMPDIR="/tmp" \
+            -D TMPDIR="$SANDBOX_TMPDIR" \
             -D HOME="$SANDBOX_HOME"  \
             -D REAL_HOME="$REAL_HOME" \
             -D SANDBOX_PASSWD="$_SANDBOX_PASSWD" \

@@ -153,9 +153,14 @@
   ;; Temp directories. /private/var/folders (the macOS per-user temp/cache
   ;; tree returned by confstr(_CS_DARWIN_USER_*)) is intentionally NOT
   ;; allowed: it holds 0400/0600 user secrets reachable via the host UID.
+  ;; /tmp and /private/tmp stay read/write only (shared, multi-tenant);
+  ;; TMPDIR is this run's private ephemeral dir and also gets process-exec
+  ;; so tools that compile-then-run in $TMPDIR (e.g. `go test`) work without
+  ;; every sandboxed process being able to exec out of shared /tmp.
   (allow file-read* file-write*
     (subpath "/tmp")
-    (subpath "/private/tmp")
+    (subpath "/private/tmp"))
+  (allow file-read* file-write* process-exec
     (subpath (param "TMPDIR")))
 
   ;; Nix store — full read access so symlinks into the store (e.g.

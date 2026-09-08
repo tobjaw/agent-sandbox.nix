@@ -164,9 +164,28 @@ let
       ${builtins.concatStringsSep "\n" (map symlinkHelpers.mkScanDirBashStr (rwDirs ++ roDirs))}
     '';
 
+  # Split env: literal values are always passed; vars whose value is exactly
+  # "$NAME" (bash passthrough pattern) are only injected when non-empty at
+  # runtime, so an unset parent-env var doesn't land inside the sandbox as
+  # an explicit empty string.
+  alwaysEnv = pkgs.lib.filterAttrs (name: value: value != ("$" + name)) env;
+  passthroughEnv = pkgs.lib.filterAttrs (name: value: value == ("$" + name)) env;
+
   extraEnvStr = builtins.concatStringsSep " " (
-    map (name: "--setenv ${name} ${builtins.toJSON env.${name}}") (builtins.attrNames env)
+    map (name: "--setenv ${name} ${builtins.toJSON alwaysEnv.${name}}") (builtins.attrNames alwaysEnv)
   );
+
+  # One conditional line per passthrough var; string concatenation avoids
+  # nested-interpolation edge cases with $${...} inside ''...'' strings.
+  passthroughEnvLines = map (
+    name: "[ -n \"$" + name + "\" ] && _pass_env+=(--setenv " + name + " \"$" + name + "\")"
+  ) (builtins.attrNames passthroughEnv);
+
+  # Bash preamble: build _pass_env array, conditionally populated at runtime.
+  passthroughEnvBashStr = ''
+    _pass_env=()
+    ${builtins.concatStringsSep "\n    " passthroughEnvLines}
+  '';
 
   extraBwrapArgsStr =
     if extraBwrapArgs == [ ] then ""
@@ -311,6 +330,9 @@ builtins.seq
           ${conditionalNetworkingParams.proxyStartupBashStr}
           ${conditionalNetworkingParams.resolvConfSetupBashStr}
           ${trapBashStr}
+
+          ${passthroughEnvBashStr}
+
           ${conditionalNetworkingParams.sandboxExecBashStr}${pkgs.coreutils}/bin/env -i ${pkgs.bubblewrap}/bin/bwrap \
             ${conditionalNetworkingParams.etcResolvBind} \
             ${nixStoreBwrapStr} \
@@ -357,6 +379,7 @@ builtins.seq
             ${conditionalNetworkingParams.caCertBubblewrapStr} \
             ${conditionalNetworkingParams.proxyEnvBubblewrapStr} \
             ${extraEnvStr} \
+            "''${_pass_env[@]}" \
             ${extraBwrapArgsStr} \
             ${nixDaemonSocketBwrapStr} \
             ${preEntryScript} ${pkg}/bin/${binName} "$@"

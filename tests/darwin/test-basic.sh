@@ -40,5 +40,12 @@ expect_ok "stat on real home succeeds (path traversal)" "test -d $REAL_HOME"
 # --- TTY isolation (escape-sequence / TIOCSTI injection defense) ---
 expect_fail "cannot open /dev/tty for writes" "printf '\a' > /dev/tty"
 
+# --- Private per-run TMPDIR: read/write/exec, isolated from shared /tmp ---
+expect_ok "can write inside \$TMPDIR" "echo hi > \$TMPDIR/probe"
+expect_ok "can exec a script written to \$TMPDIR" \
+  "printf '#!/bin/sh\nexit 0\n' > \$TMPDIR/run.sh && chmod +x \$TMPDIR/run.sh && \$TMPDIR/run.sh"
+expect_fail "cannot exec a script written to shared /tmp" \
+  "printf '#!/bin/sh\nexit 0\n' > /tmp/probe-exec.sh && chmod +x /tmp/probe-exec.sh && /tmp/probe-exec.sh"
+
 print_results
 exit_status
